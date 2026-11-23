@@ -1,1 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>SIGMAXX Battle Royale 3D</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #0b1320; font-family: Arial, sans-serif; color: #fff;
+    }
+    #gameCanvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    #portraitWarn {
+      display: none; position: fixed; inset: 0; z-index: 50;
+      background: rgba(10, 16, 28, 0.96); align-items: center; justify-content: center;
+      text-align: center; padding: 24px; font-size: 18px; line-height: 1.5;
+    }
+    @media (orientation: portrait) {
+      #portraitWarn { display: flex; }
+    }
+    #lobby {
+      position: fixed; inset: 0; z-index: 20;
+      background: linear-gradient(180deg, rgba(10,18,32,0.85), rgba(10,18,32,0.96));
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    }
+    #lobby h1 { margin: 0; font-size: 32px; letter-spacing: 2px; color: #ffb703; }
+    #lobby p { margin: 0; color: #cbd5e1; font-size: 14px; }
+    #startBtn {
+      padding: 14px 36px; font-size: 18px; font-weight: bold; border: none;
+      border-radius: 10px; background: #ff5400; color: #fff; cursor: pointer;
+    }
+    #hud { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: none; }
+    #topHud {
+      position: absolute; top: 12px; left: 16px; right: 16px;
+      display: flex; justify-content: space-between; align-items: center; font-size: 14px;
+    }
+    .pill {
+      background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(255,255,255,0.15);
+      padding: 8px 14px; border-radius: 999px;
+    }
+    #joyZone {
+      position: absolute; left: 28px; bottom: 28px; width: 130px; height: 130px;
+      border-radius: 50%; background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.2); pointer-events: auto;
+    }
+    #joyKnob {
+      position: absolute; left: 40px; top: 40px; width: 50px; height: 50px;
+      border-radius: 50%; background: rgba(255, 183, 3, 0.85);
+    }
+    #actions {
+      position: absolute; right: 24px; bottom: 28px;
+      display: flex; gap: 14px; align-items: flex-end; pointer-events: auto;
+    }
+    .btn3d {
+      width: 68px; height: 68px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.25);
+      font-weight: bold; font-size: 13px; color: #fff; background: rgba(15, 23, 42, 0.78);
+    }
+    #fireBtn { width: 84px; height: 84px; background: rgba(239, 68, 68, 0.88); font-size: 15px; }
+    #crosshair {
+      position: fixed; left: 50%; top: 50%; width: 18px; height: 18px;
+      transform: translate(-50%, -50%); border: 2px solid rgba(255,255,255,0.8);
+      border-radius: 50%; z-index: 12; pointer-events: none; display: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <div id="crosshair"></div>
+  <div id="portraitWarn">Gire o celular na horizontal para jogar SIGMAXX Battle Royale 3D.</div>
+
+  <div id="lobby">
+    <h1>SIGMAXX BATTLE ROYALE 3D</h1>
+    <p>Modo TPS • Analógico + Disparo + Pulo</p>
+    <button id="startBtn">ENTRAR NA PARTIDA</button>
+  </div>
+
+  <div id="hud">
+    <div id="topHud">
+      <div class="pill" id="hpText">HP: 200</div>
+      <div class="pill" id="aliveText">VIVOS: 12</div>
+      <div class="pill" id="scoreText">ABATES: 0</div>
+    </div>
+    <div id="joyZone"><div id="joyKnob"></div></div>
+    <div id="actions">
+      <button class="btn3d" id="jumpBtn">PULAR</button>
+      <button class="btn3d" id="fireBtn">ATIRAR</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+
+    const canvas = document.getElementById('gameCanvas');
+    const lobby = document.getElementById('lobby');
+    const hud = document.getElementById('hud');
+    const crosshair = document.getElementById('crosshair');
+    const startBtn = document.getElementById('startBtn');
+    const jumpBtn = document.getElementById('jumpBtn');
+    const fireBtn = document.getElementById('fireBtn');
+    const joyZone = document.getElementById('joyZone');
+    const joyKnob = document.getElementById('joyKnob');
+    const hpText = document.getElementById('hpText');
+    const aliveText = document.getElementById('aliveText');
+    const scoreText = document.getElementById('scoreText');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x38bdf8);
+    scene.fog = new THREE.Fog(0x38bdf8, 35, 130);
+
+    const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 220);
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x3b5249, 1.1);
+    scene.add(hemi);
+    const dirLight = new THREE.DirectionalLight(0xfffbeb, 1.1);
+    dirLight.position.set(25, 40, 20);
+    scene.add(dirLight);
+
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(180, 180),
+      new THREE.MeshStandardMaterial({ color: 0x2f855a })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+
+    const coverGeo = new THREE.BoxGeometry(4, 3, 4);
+    const coverMat = new THREE.MeshStandardMaterial({ color: 0x64748b });
+    for (let i = 0; i < 18; i++) {
+      const angle = (i / 18) * Math.PI * 2;
+      const dist = 16 + (i % 3) * 18;
+      const box = new THREE.Mesh(coverGeo, coverMat);
+      box.position.set(Math.cos(angle) * dist, 1.5, Math.sin(angle) * dist);
+      scene.add(box);
+    }
+
+    const player = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.55, 1.1, 4, 8),
+      new THREE.MeshStandardMaterial({ color: 0xff5400 })
+    );
+    player.position.set(0, 1.05, 0);
+    scene.add(player);
+
+    const bots = [];
+    const botGeo = new THREE.CapsuleGeometry(0.55, 1.1, 4, 8);
+    for (let i = 0; i < 6; i++) {
+      const bot = new THREE.Mesh(
+        botGeo,
+        new THREE.MeshStandardMaterial({ color: 0xef4444 })
+      );
+      const a = (i / 6) * Math.PI * 2;
+      bot.position.set(Math.cos(a) * 28, 1.05, Math.sin(a) * 28);
+      bot.userData = { hp: 100, dirTimer: 0, vx: 0, vz: 0 };
+      scene.add(bot);
+      bots.push(bot);
+    }
+
+    const bullets = [];
+    let running = false;
+    let hp = 200;
+    let kills = 0;
+    let vy = 0;
+    let grounded = true;
+    let moveX = 0, moveZ = 0;
+    let joyId = null;
+    let lookId = null, lastLookX = 0, lastLookY = 0;
+    let yaw = 0, pitch = 0.22;
+    let firing = false, fireCooldown = 0;
+
+    startBtn.addEventListener('click', async () => {
+      lobby.style.display = 'none';
+      hud.style.display = 'block';
+      crosshair.style.display = 'block';
+      running = true;
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape');
+        }
+      } catch (_) {}
+    });
+
+    jumpBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      if (grounded) { vy = 9; grounded = false; }
+    }, { passive: false });
+
+    fireBtn.addEventListener('touchstart', (e) => { e.preventDefault(); firing = true; }, { passive: false });
+    fireBtn.addEventListener('touchend', () => { firing = false; });
+
+    function updateJoy(touch) {
+      const rect = joyZone.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      let dx = touch.clientX - cx;
+      let dy = touch.clientY - cy;
+      const maxR = 40;
+      const dist = Math.hypot(dx, dy);
+      if (dist > maxR) { dx = (dx / dist) * maxR; dy = (dy / dist) * maxR; }
+      joyKnob.style.left = `${40 + dx}px`;
+      joyKnob.style.top = `${40 + dy}px`;
+      moveX = dx / maxR;
+      moveZ = dy / maxR;
+    }
+
+    function resetJoy() {
+      joyId = null; moveX = 0; moveZ = 0;
+      joyKnob.style.left = '40px'; joyKnob.style.top = '40px';
+    }
+
+    window.addEventListener('touchstart', (e) => {
+      if (!running) return;
+      for (const t of e.changedTouches) {
+        const r = joyZone.getBoundingClientRect();
+        if (joyId === null && t.clientX >= r.left && t.clientX <= r.right && t.clientY >= r.top && t.clientY <= r.bottom) {
+          joyId = t.identifier;
+          updateJoy(t);
+        } else if (lookId === null && t.clientX > window.innerWidth * 0.35) {
+          lookId = t.identifier;
+          lastLookX = t.clientX;
+          lastLookY = t.clientY;
+        }
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === joyId) updateJoy(t);
+        if (t.identifier === lookId) {
+          yaw -= (t.clientX - lastLookX) * 0.006;
+          pitch = Math.max(-0.2, Math.min(0.75, pitch + (t.clientY - lastLookY) * 0.004));
+          lastLookX = t.clientX;
+          lastLookY = t.clientY;
+        }
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchend', (e) => {
+      for (const t of e.changedTouches) {
+        if (t.identifier === joyId) resetJoy();
+        if (t.identifier === lookId) lookId = null;
+      }
+    });
+
+    function shoot() {
+      const dir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      const bullet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.14, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xfacc15 })
+      );
+      bullet.position.copy(player.position).addScaledVector(dir, 1.2);
+      bullet.userData = { vel: dir.multiplyScalar(48), life: 1.2 };
+      scene.add(bullet);
+      bullets.push(bullet);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    let prevTime = performance.now();
+    function animate(now) {
+      requestAnimationFrame(animate);
+      const dt = Math.min((now - prevTime) / 1000, 0.05);
+      prevTime = now;
+
+      if (running) {
+        const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+        const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+        const wish = new THREE.Vector3()
+          .addScaledVector(forward, -moveZ)
+          .addScaledVector(right, moveX);
+        if (wish.lengthSq() > 0) wish.normalize();
+        player.position.addScaledVector(wish, 9 * dt);
+        player.rotation.y = yaw;
+
+        vy -= 22 * dt;
+        player.position.y += vy * dt;
+        if (player.position.y <= 1.05) { player.position.y = 1.05; vy = 0; grounded = true; }
+
+        fireCooldown -= dt;
+        if (firing && fireCooldown <= 0) { shoot(); fireCooldown = 0.18; }
+
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const b = bullets[i];
+          b.position.addScaledVector(b.userData.vel, dt);
+          b.userData.life -= dt;
+
+          let hit = false;
+          for (let j = bots.length - 1; j >= 0; j--) {
+            if (b.position.distanceTo(bots[j].position) < 1.2) {
+              bots[j].userData.hp -= 35;
+              hit = true;
+              if (bots[j].userData.hp <= 0) {
+                scene.remove(bots[j]);
+                bots.splice(j, 1);
+                kills += 1;
+              }
+              break;
+            }
+          }
+
+          if (hit || b.userData.life <= 0) {
+            scene.remove(b);
+            bullets.splice(i, 1);
+          }
+        }
+
+        for (const bot of bots) {
+          bot.userData.dirTimer -= dt;
+          if (bot.userData.dirTimer <= 0) {
+            const ang = Math.random() * Math.PI * 2;
+            bot.userData.vx = Math.cos(ang) * 4;
+            bot.userData.vz = Math.sin(ang) * 4;
+            bot.userData.dirTimer = 1.5;
+          }
+          bot.position.x = Math.max(-75, Math.min(75, bot.position.x + bot.userData.vx * dt));
+          bot.position.z = Math.max(-75, Math.min(75, bot.position.z + bot.userData.vz * dt));
+        }
+
+        const camDist = 6.5;
+        const cx = player.position.x + Math.sin(yaw) * Math.cos(pitch) * camDist;
+        const cy = player.position.y + 1.8 + Math.sin(pitch) * camDist;
+        const cz = player.position.z + Math.cos(yaw) * Math.cos(pitch) * camDist;
+        camera.position.set(cx, cy, cz);
+        camera.lookAt(player.position.x, player.position.y + 1.3, player.position.z);
+
+        hpText.textContent = `HP: ${hp}`;
+        aliveText.textContent = `VIVOS: ${bots.length + 1}`;
+        scoreText.textContent = `ABATES: ${kills}`;
+      }
+
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(animate);
+  </script>
+</body>
+  </html>
 
